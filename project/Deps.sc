@@ -8,11 +8,13 @@ object Izumi {
     val kind_projector = Version.VExpr("V.kind_projector")
     val scalatest = Version.VExpr("V.scalatest")
     val sbtgen = Version.VExpr("V.sbtgen")
+    val jmh = Version.VExpr("V.jmh")
   }
 
   object PV {
     val sbt_scoverage = Version.VExpr("PV.sbt_scoverage")
     val sbt_pgp = Version.VExpr("PV.sbt_pgp")
+    val sbt_jmh = Version.VExpr("PV.sbt_jmh")
 
     val scala_js_version = Version.VExpr("PV.scala_js_version")
     val scala_native_version = Version.VExpr("PV.scala_native_version")
@@ -67,6 +69,9 @@ object Izumi {
 
     final val scala_reflect = Library("org.scala-lang", "scala-reflect", Version.VExpr("scalaVersion.value"), LibraryType.Invariant)
     final val scala3_compiler = Library("org.scala-lang", "scala3-compiler", Version.VExpr("scalaVersion.value"), LibraryType.AutoJvm)
+
+    final val jmh_core = Library("org.openjdk.jmh", "jmh-core", V.jmh, LibraryType.Invariant)
+    final val jmh_generator = Library("org.openjdk.jmh", "jmh-generator-annprocess", V.jmh, LibraryType.Invariant)
 
     final val projector = Library("org.typelevel", "kind-projector", V.kind_projector, LibraryType.Invariant)
       .more(LibSetting.Raw("cross CrossVersion.full"))
@@ -330,9 +335,24 @@ object Izumi {
       ),
       Artifact(
         name = Projects.izumi_reflect_aggregate.izumi_reflect,
-        libs = Seq.empty,
+        libs = Seq(jmh_core, jmh_generator),
         depends = Seq(
           Projects.izumi_reflect_aggregate.thirdpartyBoopickleShaded
+        ),
+        plugins = Plugins(enabled = Seq(Plugin("JmhPlugin"))),
+        settings = Seq(
+          SettingDef.RawSettingDef(
+            """Jmh / sourceDirectory := sourceDirectory.value / "benchmark"""",
+            FullSettingScope(SettingScope.Project, Platform.All)
+          ),
+          SettingDef.RawSettingDef(
+            """Jmh / javaOptions ++= Seq("-server", "-Xms2g", "-Xmx2g", "-XX:+UseG1GC", "-XX:+UnlockExperimentalVMOptions", "-XX:+UnlockDiagnosticVMOptions")""",
+            FullSettingScope(SettingScope.Project, Platform.All)
+          ),
+          SettingDef.RawSettingDef(
+            """addCommandAlias("izumi-reflect-benchmarks", "izumi-reflect/Jmh/run")""",
+            FullSettingScope(SettingScope.Project, Platform.All)
+          )
         )
       )
     ),
@@ -370,6 +390,7 @@ object Izumi {
       SbtPlugin("com.github.sbt", "sbt-pgp", PV.sbt_pgp),
       SbtPlugin("org.scoverage", "sbt-scoverage", PV.sbt_scoverage),
       SbtPlugin("com.typesafe", "sbt-mima-plugin", PV.sbt_mima_version),
+      SbtPlugin("pl.project13.scala", "sbt-jmh", PV.sbt_jmh),
       SbtPlugin("dev.zio", "zio-sbt-website", PV.zio_sbt_website)
     )
   )

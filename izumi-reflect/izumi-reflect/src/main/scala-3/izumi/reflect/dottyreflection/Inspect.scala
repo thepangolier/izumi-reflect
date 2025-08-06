@@ -3,16 +3,46 @@ package izumi.reflect.dottyreflection
 import izumi.reflect.macrortti.LightTypeTag
 import izumi.reflect.macrortti.LightTypeTag.ParsedLightTypeTag.SubtypeDBs
 import izumi.reflect.thirdparty.internal.boopickle.PickleImpl
+import izumi.reflect.DebugProperties
+import izumi.reflect.internal.fundamentals.platform.strings.IzString._
 
 import scala.quoted.{Expr, Quotes, Type}
 
 object Inspect {
+  private lazy val fullTagCache = new java.util.WeakHashMap[String, LightTypeTag]
+  
+  /** caching is enabled by default for compile-time light type tag creation */
+  private lazy val cacheEnabled: Boolean = {
+    System
+      .getProperty(DebugProperties.`izumi.reflect.rtti.cache.compile`).asBoolean()
+      .getOrElse(true)
+  }
+
   inline def inspect[T <: AnyKind]: LightTypeTag = ${ inspectAny[T] }
 
   inline def inspectStrong[T <: AnyKind]: LightTypeTag = ${ inspectStrong[T] }
 
   def inspectAny[T <: AnyKind: Type](using qctx: Quotes): Expr[LightTypeTag] = {
-    val ltt = {
+    val ltt = if (cacheEnabled) {
+      import qctx.reflect.*
+      val tpe = TypeRepr.of[T]
+      val stableTypeStr = tpe.dealias.show
+      val contextHash = Symbol.spliceOwner.hashCode()
+      val modulePath = Symbol.spliceOwner.fullName.takeWhile(_ != '$')
+      val cacheKey = s"$stableTypeStr#$contextHash#$modulePath"
+      
+      fullTagCache.synchronized(fullTagCache.get(cacheKey)) match {
+        case null =>
+          val ref = TypeInspections.apply[T]
+          val fullDb = TypeInspections.fullDb[T]
+          val nameDb = TypeInspections.unappliedDb[T]
+          val tag = LightTypeTag(ref, fullDb, nameDb)
+          fullTagCache.synchronized(fullTagCache.put(cacheKey, tag))
+          tag
+        case cachedTag =>
+          cachedTag
+      }
+    } else {
       val ref = TypeInspections.apply[T]
       val fullDb = TypeInspections.fullDb[T]
       val nameDb = TypeInspections.unappliedDb[T]
